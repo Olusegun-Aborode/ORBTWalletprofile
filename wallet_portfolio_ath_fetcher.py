@@ -5,9 +5,24 @@ import concurrent.futures
 from threading import Lock
 import os
 
+# Try to load env vars
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    if os.path.exists(".env"):
+        with open(".env") as f:
+            for line in f:
+                if line.strip() and not line.startswith("#"):
+                    key, value = line.strip().split("=", 1)
+                    os.environ[key] = value
+
 # CONFIG
-SIM_API_KEY = "sim_EO9GHAnKw4OOQz1GGR6JbIIPlqS3nX1a"
-DUNE_API_KEY = "iZZZp3h425CcCf6XYmkaur8B5zrfQt5g"
+SIM_API_KEY = os.getenv("SIM_API_KEY")
+DUNE_API_KEY = os.getenv("DUNE_API_KEY")
+
+if not SIM_API_KEY or not DUNE_API_KEY:
+    raise ValueError("Please set SIM_API_KEY and DUNE_API_KEY in .env file")
 DUNE_NAMESPACE = "surgence_lab"
 DUNE_TABLE_NAME = "dataset_wallet_portfolio_ath"
 
