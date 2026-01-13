@@ -26,9 +26,9 @@ if not ALCHEMY_API_KEY:
 
 ALCHEMY_RPC_URL = f"https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
 
-INPUT_FILE = "wallets_active.csv"  # The 62k subset
+INPUT_FILE = "final_active_wallets.csv"
 OUTPUT_FILE = "alchemy_eth_balances.csv"
-MAX_WORKERS = 2
+MAX_WORKERS = 5
 BATCH_SIZE = 50  # Alchemy supports batch requests
 
 def get_eth_balances_batch(wallets):
@@ -87,19 +87,59 @@ def main():
 
     print(f"📖 Reading {INPUT_FILE}...")
     try:
-        # Assuming headerless single column
-        df = pd.read_csv(INPUT_FILE, header=None, names=['wallet'])
-        wallets = df['wallet'].tolist()
-    except:
-        # Try reading the full backup if active csv doesn't exist
-        print(f"⚠️  {INPUT_FILE} not found, reading full backup...")
-        df = pd.read_csv("wallet_portfolio_ath_backup.csv")
-        wallets = df[df['present_value_usd'] > 0]['wallet'].tolist()
+        # Read all wallets from CSV
+        # We need to handle potential header 'wallet'
+        df = pd.read_csv(INPUT_FILE)
+        
+        # Check if we have 'wallet' column
+        if 'wallet' in df.columns:
+             wallets = [str(x).strip() for x in df['wallet'].tolist()]
+        else:
+             # Fallback to first column
+             wallets = [str(x).strip() for x in df.iloc[:, 0].tolist()]
+             
+    except Exception as e:
+        print(f"❌ Error reading input file: {e}")
+        return
 
-    print(f"📊 Processing {len(wallets)} wallets...")
+    # Normalize wallets
+    wallets = [str(w).strip().lower() for w in wallets]
+
+    # Load existing results to skip
+    if os.path.exists(OUTPUT_FILE):
+        try:
+            df_existing = pd.read_csv(OUTPUT_FILE)
+            # FORCE string type for all existing wallets
+            existing_wallets = set(df_existing['wallet'].astype(str).str.lower().str.strip())
+            
+            # FORCE string type for input wallets
+            wallets_set = set([str(w).lower().strip() for w in wallets])
+            
+            print(f"⏩ Found {len(existing_wallets)} already processed. Skipping...")
+            
+            # DEBUG: Print sample wallets from each to check formatting
+            print(f"Sample Input: {list(wallets_set)[:3]}")
+            print(f"Sample Existing: {list(existing_wallets)[:3]}")
+ 
+            remaining_set = wallets_set - existing_wallets
+            wallets = list(remaining_set)
+            
+            # Sanity Check
+            print(f"DEBUG: Total unique input wallets: {len(wallets_set)}")
+            print(f"DEBUG: Existing unique processed: {len(existing_wallets)}")
+            print(f"DEBUG: Remaining to process: {len(wallets)}")
+            
+        except Exception as e:
+            print(f"⚠️ Error reading existing output: {e}")
+
+    if not wallets:
+        print("✅ All wallets processed!")
+        return
+
+    print(f"🚀 Processing {len(wallets)} wallets in batches of {BATCH_SIZE}...")
     
     all_results = []
-    
+
     # Process in chunks of BATCH_SIZE
     chunks = [wallets[i:i + BATCH_SIZE] for i in range(0, len(wallets), BATCH_SIZE)]
     
@@ -114,9 +154,12 @@ def main():
             if processed % 1000 == 0:
                 print(f"⏳ Processed {processed}/{len(wallets)}...")
 
-    print("💾 Saving results...")
-    pd.DataFrame(all_results).to_csv(OUTPUT_FILE, index=False)
-    print(f"✅ Done! Saved to {OUTPUT_FILE}")
+    print(f"💾 Saving results to {OUTPUT_FILE}...")
+    # Append if file exists, else write new
+    mode = 'a' if os.path.exists(OUTPUT_FILE) else 'w'
+    header = not os.path.exists(OUTPUT_FILE)
+    pd.DataFrame(all_results).to_csv(OUTPUT_FILE, mode=mode, header=header, index=False)
+    print(f"✅ Done! Added {len(all_results)} new records.")
 
 if __name__ == "__main__":
     main()

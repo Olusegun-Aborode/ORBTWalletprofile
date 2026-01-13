@@ -2,6 +2,7 @@ import requests
 import pandas as pd
 import time
 import concurrent.futures
+import random
 from threading import Lock
 import os
 
@@ -23,18 +24,18 @@ DUNE_API_KEY = os.getenv("DUNE_API_KEY")
 
 if not SIM_API_KEY or not DUNE_API_KEY:
     raise ValueError("Please set SIM_API_KEY and DUNE_API_KEY in .env file")
-DUNE_NAMESPACE = "surgence_lab"
+DUNE_NAMESPACE = "orbt_official"
 DUNE_TABLE_NAME = "dataset_wallet_portfolio_ath"
 
-INPUT_FILE = "all_wallets.csv"
+INPUT_FILE = "final_active_wallets.csv"
 OLD_BACKUP = "wallet_portfolio_backup.csv"
 NEW_BACKUP = "wallet_portfolio_ath_backup.csv"
 
 SIM_API_URL = "https://api.sim.dune.com/v1/evm/balances"
 CHAIN_IDS = "1"
 
-MAX_WORKERS = 10
-UPLOAD_BATCH_SIZE = 5000
+MAX_WORKERS = 20
+UPLOAD_BATCH_SIZE = 25000
 
 headers_sim = {"X-Sim-Api-Key": SIM_API_KEY}
 headers_dune = {"X-Dune-Api-Key": DUNE_API_KEY}
@@ -57,7 +58,8 @@ def get_wallet_portfolio(wallet_address):
             timeout=30
         )
         if response.status_code == 429:
-            time.sleep(2)
+            # print(f"⚠️ 429 Rate Limit for {wallet_address}. Retrying...")
+            time.sleep(random.uniform(2, 5))
             return get_wallet_portfolio(wallet_address)
         if response.status_code != 200:
             return {"wallet": wallet_str, "present_value_usd": 0.0, "ath_value_usd": 0.0, "token_count": 0, "top_tokens": ""}
@@ -144,7 +146,7 @@ def process_wallet(wallet):
             results.clear()
     with count_lock:
         processed_count += 1
-        if processed_count % 500 == 0:
+        if processed_count % 100 == 0:
             print(f"⏳ Processed {processed_count}...")
     if batch_ready:
         upload_to_dune(batch)
@@ -154,63 +156,64 @@ def process_wallet(wallet):
 
 print("🚀 Starting ATH Portfolio Fetcher...")
 
-df_all = pd.read_csv(INPUT_FILE, header=None)
-all_wallets = [str(w).strip() for w in df_all.iloc[:, 0].tolist()]
-print(f"📊 Total wallets: {len(all_wallets)}")
+df_all = pd.read_csv(INPUT_FILE)
+# Ensure we get the 'wallet' column if it exists, otherwise assume first column if no header
+if 'wallet' in df_all.columns:
+    all_wallets = [str(w).strip().lower() for w in df_all['wallet'].tolist()]
+else:
+    all_wallets = [str(w).strip().lower() for w in df_all.iloc[:, 0].tolist()]
+
+# Filter out header 'wallet' if present in data (just in case)
+all_wallets = [w for w in all_wallets if w != 'wallet']
+print(f"📊 Total unique input wallets: {len(set(all_wallets))}")
 
 # Load already processed wallets from current run/backup
 processed_wallets = set()
 if os.path.exists(NEW_BACKUP):
     try:
         df_new = pd.read_csv(NEW_BACKUP)
-        processed_wallets = set(str(w).strip() for w in df_new['wallet'].tolist())
+        processed_wallets = set(str(w).strip().lower() for w in df_new['wallet'].tolist())
         print(f"⏩ Found {len(processed_wallets)} already processed in {NEW_BACKUP}. Skipping them.")
     except Exception as e:
         print(f"⚠️ Could not read existing backup: {e}")
 
-try:
-    df_old = pd.read_csv(OLD_BACKUP)
-    old_wallets = [str(w).strip() for w in df_old['wallet'].tolist()]
-    # Filter out already processed
-    old_wallets = [w for w in old_wallets if w not in processed_wallets]
-    
-    print(f"📁 Found {len(old_wallets)} wallets in old backup (after skipping processed)")
-    
-    if old_wallets:
-        print(f"\n🔄 Phase 1: Re-fetching {len(old_wallets)} wallets with ATH...")
-        # Process old wallets
-        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-            list(ex.map(process_wallet, old_wallets))
-            
-        # Flush remaining results from Phase 1
-        with results_lock:
-            if results:
-                upload_to_dune(results)
-                pd.DataFrame(results).to_csv(NEW_BACKUP, mode='a', header=not os.path.exists(NEW_BACKUP), index=False)
-                results.clear()
-        print(f"✅ Phase 1 complete!")
-    else:
-        print("✅ Phase 1 already complete (all wallets processed).")
-    
-    # Identify remaining wallets
-    # Exclude wallets in OLD_BACKUP (original list) AND processed_wallets
-    # Note: old_wallets variable is now filtered, so we need to reference df_old or just use processed_wallets check
-    # But strictly speaking, we want to process everything in all_wallets that hasn't been processed.
-    
-    # Simpler logic for Phase 2:
-    remaining = [w for w in all_wallets if w not in processed_wallets and w not in old_wallets]
-    # Wait, if w was in old_wallets but NOT processed, it would have been handled in Phase 1.
-    # If w was in old_wallets AND processed, it's done.
-    # So we just need to ensure we don't double process.
-    # Actually, let's just say remaining is everything in all_wallets that is NOT in processed_wallets AND NOT in the original old_wallets list (since we just handled those).
-    
-    original_old_wallets = set(str(w).strip() for w in df_old['wallet'].tolist())
-    remaining = [w for w in all_wallets if w not in processed_wallets and w not in original_old_wallets]
+original_old_wallets = set()
 
-    print(f"\n🚀 Phase 2: Processing {len(remaining)} remaining wallets...")
-except FileNotFoundError:
+if os.path.exists(OLD_BACKUP):
+    try:
+        df_old = pd.read_csv(OLD_BACKUP)
+        original_old_wallets = set(str(w).strip().lower() for w in df_old['wallet'].tolist())
+        
+        old_wallets = [w for w in original_old_wallets if w not in processed_wallets]
+        
+        print(f"📁 Found {len(old_wallets)} wallets in old backup (after skipping processed)")
+        
+        if old_wallets:
+            print(f"\n🔄 Phase 1: Re-fetching {len(old_wallets)} wallets with ATH...")
+            # Process old wallets
+            with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+                list(ex.map(process_wallet, old_wallets))
+                
+            # Flush remaining results from Phase 1
+            with results_lock:
+                if results:
+                    upload_to_dune(results)
+                    pd.DataFrame(results).to_csv(NEW_BACKUP, mode='a', header=not os.path.exists(NEW_BACKUP), index=False)
+                    results.clear()
+            print(f"✅ Phase 1 complete!")
+        else:
+            print("✅ Phase 1 already complete (all wallets processed).")
+            
+    except Exception as e:
+        print(f"⚠️ Error reading/processing old backup: {e}")
+else:
     print("📁 No old backup found. Starting fresh...")
-    remaining = [w for w in all_wallets if w not in processed_wallets]
+
+# Phase 2: Remaining
+# Identify remaining wallets from ALL inputs that are not processed and not in old backup (already handled)
+remaining = [w for w in all_wallets if w not in processed_wallets and w not in original_old_wallets]
+
+print(f"\n🚀 Phase 2: Processing {len(remaining)} remaining wallets...")
 
 processed_count = 0
 with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
