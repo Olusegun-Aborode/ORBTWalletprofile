@@ -57,10 +57,23 @@ LENDING_ADDRESSES = {
 ETH_PRICE = 3300.0
 STABLECOINS = ["USDC", "USDT", "DAI", "USDE", "PYUSD", "GUSD"]
 
+# Token Prices for CIS Calculation (Snapshot)
+TOKEN_PRICES = {
+    "DOG": 0.000908,
+    "VERSE": 0.000005,
+    "PYME": 0.000001,
+    "L3": 0.012888,
+    "USDC": 1.0, "USDT": 1.0, "DAI": 1.0, "USDE": 1.0, "PYUSD": 1.0, "GUSD": 1.0,
+    "WETH": ETH_PRICE, "ETH": ETH_PRICE
+}
+
 results = []
 results_lock = Lock()
 
-def get_transfers(wallet):
+def get_transfers(wallet, direction="from"):
+    """
+    direction: 'from' (OUT) or 'to' (IN)
+    """
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -69,7 +82,6 @@ def get_transfers(wallet):
             {
                 "fromBlock": "0x0",
                 "toBlock": "latest",
-                "fromAddress": wallet,
                 "category": ["external", "erc20"],
                 "withMetadata": False,
                 "excludeZeroValue": True
@@ -77,11 +89,12 @@ def get_transfers(wallet):
         ]
     }
     
-    # We might need pagination if user has > 1000 transfers
-    # For now, let's just get the first 1000 (default max) to save calls
-    # or implement pagination if needed. For "Volume", pagination is important.
-    # Let's try one page first to see speed.
-    
+    if direction == "from":
+        payload["params"][0]["fromAddress"] = wallet
+    else:
+        payload["params"][0]["toAddress"] = wallet
+        
+    # Retry loop
     for attempt in range(3):
         try:
             response = requests.post(ALCHEMY_URL, json=payload, headers={"Content-Type": "application/json"}, timeout=15)
@@ -97,7 +110,12 @@ def get_transfers(wallet):
     return []
 
 def calculate_volumes(wallet):
-    transfers = get_transfers(wallet)
+    # 1. Fetch OUTGOING (Spending/Trading)
+    transfers_out = get_transfers(wallet, "from")
+    
+    # 2. Fetch INCOMING (For CIS Total Flow)
+    # Optimization: Only fetch incoming if we really need it? Yes, for CIS.
+    transfers_in = get_transfers(wallet, "to")
     
     dex_vol = 0.0
     cex_vol = 0.0
@@ -113,23 +131,22 @@ def calculate_volumes(wallet):
     
     trade_count = 0
     
-    for tx in transfers:
+    # --- Process Outgoing for Category Metrics ---
+    for tx in transfers_out:
         to_addr = str(tx.get("to")).lower()
         asset = tx.get("asset", "")
         raw_val = tx.get("value", 0)
         
-        if raw_val is None:
-            continue
+        if raw_val is None: continue
             
-        # Estimate USD Value
+        # Estimate USD Value (Standard Bluechip)
         val_usd = 0.0
         if asset == "ETH" or asset == "WETH":
             val_usd = raw_val * ETH_PRICE
         elif asset in STABLECOINS:
             val_usd = raw_val
         else:
-            # Skip unknown tokens for USD sum to avoid noise
-            continue
+            continue # Skip unknown for DEX metric
             
         # Check DEX
         if to_addr in DEX_ADDRESSES:
@@ -138,14 +155,12 @@ def calculate_volumes(wallet):
             interacted_dexs.add(name)
             dex_counts[name] = dex_counts.get(name, 0) + 1
             trade_count += 1
-            
         # Check CEX
         elif to_addr in CEX_ADDRESSES:
             cex_vol += val_usd
             name = CEX_ADDRESSES[to_addr]
             interacted_cexs.add(name)
             cex_counts[name] = cex_counts.get(name, 0) + 1
-            
         # Check Lending
         elif to_addr in LENDING_ADDRESSES:
             lending_vol += val_usd
@@ -158,8 +173,27 @@ def calculate_volumes(wallet):
     most_used_cex = max(cex_counts, key=cex_counts.get) if cex_counts else None
     most_used_protocol = max(lending_counts, key=lending_counts.get) if lending_counts else None
     
+    # --- Process ALL Transfers for CIS Metric (In + Out) ---
+    total_cis_volume = 0.0
+    
+    # Combine lists
+    all_transfers = transfers_out + transfers_in
+    
+    for tx in all_transfers:
+        asset = tx.get("asset", "")
+        raw_val = tx.get("value", 0)
+        if raw_val is None: continue
+        
+        # Use extended price list
+        if asset in TOKEN_PRICES:
+            price = TOKEN_PRICES[asset]
+            total_cis_volume += raw_val * price
+        elif asset in STABLECOINS: # Fallback if not in dict but in list
+             total_cis_volume += raw_val
+
     return {
         "wallet": wallet,
+        "total_volume_usd_cis": round(total_cis_volume, 2), # NEW METRIC (In + Out, Extended Tokens)
         "total_dex_volume_usd": round(dex_vol, 2),
         "interacted_dexs": list(interacted_dexs),
         "most_used_dex": most_used_dex,

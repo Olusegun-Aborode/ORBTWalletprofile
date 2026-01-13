@@ -72,8 +72,10 @@ merged = pd.merge(merged, df_age[['wallet', 'wallet_age_days', 'first_tx_timesta
 merged.rename(columns={'first_tx_timestamp': 'first_seen_date'}, inplace=True)
 
 # Merge Volumes
-vol_cols = ['wallet', 'total_dex_volume_usd', 'total_cex_volume_usd', 'total_lending_volume_usd']
+vol_cols = ['wallet', 'total_dex_volume_usd', 'total_cex_volume_usd', 'total_lending_volume_usd', 'total_volume_usd_cis']
 merged = pd.merge(merged, df_vols[vol_cols], on='wallet', how='left')
+# Rename for final upload to match user request "Total Volume"
+merged.rename(columns={'total_volume_usd_cis': 'total_volume_usd'}, inplace=True)
 
 # Merge Gas
 merged = pd.merge(merged, df_gas[['wallet', 'gas_fees_usd']], on='wallet', how='left')
@@ -93,7 +95,8 @@ print("🧹 Cleaning data...")
 numeric_cols = [
     'wallet_age_days', 
     'total_dex_volume_usd', 'total_cex_volume_usd', 'total_lending_volume_usd',
-    'gas_fees_usd', 'present_value_usd', 'ath_value_usd', 'alchemy_eth_balance'
+    'gas_fees_usd', 'present_value_usd', 'ath_value_usd', 'alchemy_eth_balance',
+    'total_volume_usd'
 ]
 merged[numeric_cols] = merged[numeric_cols].fillna(0)
 
