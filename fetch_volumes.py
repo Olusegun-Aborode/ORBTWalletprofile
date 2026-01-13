@@ -193,9 +193,10 @@ def main():
     df = pd.read_csv(INPUT_FILE)
     df['wallet'] = df['wallet'].astype(str).str.lower().str.strip()
     
-    # Filter
-    if 'tx_count' in df.columns:
-        df = df[(df['tx_count'] > 0) & (df['tx_count'] <= 20000)]
+    # Filter (Removed per user request)
+    print(f"Total wallets in file: {len(df)}")
+    # if 'tx_count' in df.columns:
+    #     df = df[(df['tx_count'] > 0) & (df['tx_count'] <= 20000)]
         
     # Exclude already processed
     df = df[~df['wallet'].isin(processed_wallets)]

@@ -167,6 +167,10 @@ else:
 all_wallets = [w for w in all_wallets if w != 'wallet']
 print(f"📊 Total unique input wallets: {len(set(all_wallets))}")
 
+# Filter (Removed per user request)
+# if 'tx_count' in df.columns:
+#     df = df[(df['tx_count'] > 0) & (df['tx_count'] <= 20000)]
+
 # Load already processed wallets from current run/backup
 processed_wallets = set()
 if os.path.exists(NEW_BACKUP):

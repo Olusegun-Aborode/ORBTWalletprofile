@@ -131,11 +131,12 @@ def main():
     df_final = pd.read_csv(TX_FILE)
     df_final['wallet'] = df_final['wallet'].astype(str).str.lower().str.strip()
     
-    # Filter: 0 < tx <= 20000
-    df_active = df_final[(df_final['tx_count'] > 0) & (df_final['tx_count'] <= 20000)]
+    # Filter: Keep ALL wallets (removed all filters per user request)
+    # Even 0-tx wallets are included (holders who haven't moved funds).
+    df_active = df_final
     
     print(f"   - Total Unique Wallets: {len(df_final)}")
-    print(f"   - Active Retail Wallets: {len(df_active)}")
+    print(f"   - Active Wallets (ALL): {len(df_active)}")
     
     df_active.to_csv(FINAL_FILE, index=False)
     print(f"🎉 Final List Saved: {FINAL_FILE}")

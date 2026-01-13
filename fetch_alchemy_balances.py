@@ -105,6 +105,10 @@ def main():
     # Normalize wallets
     wallets = [str(w).strip().lower() for w in wallets]
 
+    # Filter (Removed per user request)
+    # if 'tx_count' in df.columns:
+    #     df = df[(df['tx_count'] > 0) & (df['tx_count'] <= 20000)]
+
     # Load existing results to skip
     if os.path.exists(OUTPUT_FILE):
         try:
