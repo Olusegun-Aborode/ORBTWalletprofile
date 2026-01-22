@@ -48,20 +48,20 @@ if __name__ == "__main__":
     print("🌟 STARTING FULL DELTA PIPELINE 🌟")
     
     # 1. Fetch TX Counts first (needed for base file)
-    run_script("fetch_tx_counts_delta.py")
+    run_script("scripts/fetchers/fetch_tx_counts_delta.py")
     merge_tx_counts()
     
     # 2. Fetch other metrics
-    run_script("fetch_wallet_age_delta.py")
-    run_script("fetch_alchemy_balances_delta.py")
-    run_script("fetch_volumes_delta.py")
-    run_script("fetch_gas_fees_delta.py")
-    run_script("wallet_portfolio_ath_fetcher_delta.py")
+    run_script("scripts/fetchers/fetch_wallet_age_delta.py")
+    run_script("scripts/fetchers/fetch_alchemy_balances_delta.py")
+    run_script("scripts/fetchers/fetch_volumes_delta.py")
+    run_script("scripts/fetchers/fetch_gas_fees_delta.py")
+    run_script("scripts/fetchers/wallet_portfolio_ath_fetcher_delta.py")
     
     # 3. Consolidate
-    run_script("create_consolidated_table_delta.py")
+    run_script("scripts/consolidation/create_consolidated_table_delta.py")
     
     # 4. Upload
-    run_script("upload_delta.py")
+    run_script("scripts/upload/upload_delta.py")
     
     print("\n🎉 PIPELINE COMPLETE! 🎉")
